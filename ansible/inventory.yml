@@ -1,0 +1,10 @@
+[kube]
+kube-master ansible_host=192.168.5.50
+kube-slave-0 ansible_host=192.168.5.51 KUBE_master=false
+kube-slave-1 ansible_host=192.168.5.52 KUBE_master=false
+
+[kube:vars]
+ansible_user = debian
+ansible_password = debian
+ansible_sudo_pass = debian
+ansible_connection = ssh

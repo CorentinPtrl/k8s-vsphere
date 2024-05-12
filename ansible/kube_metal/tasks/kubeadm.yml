@@ -1,0 +1,88 @@
+---
+  - name: Check that kube Repo isn't already added
+    stat:
+      path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    register: keyring
+
+  - name: Add kube Repo
+    shell: |
+      set -o pipefail
+      curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    args:
+      executable: /bin/bash
+    when: not keyring.stat.exists
+
+  - name: Check that kube sources isn't already added
+    stat:
+      path: /etc/apt/sources.list.d/kubernetes.list
+    register: sources
+
+  - name: Add kube to sources
+    shell: |
+      set -o pipefail
+      echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+    args:
+      executable: /bin/bash
+    when: not sources.stat.exists
+
+  - name: Install Kubernetes
+    ansible.builtin.apt:
+      pkg:
+        - kubelet=1.29.0-1.1
+        - kubectl=1.29.0-1.1
+        - kubeadm=1.29.0-1.1
+      update_cache: true
+
+  - name: Mark as Hold
+    shell: |
+      apt-mark hold kubelet kubeadm kubectl
+
+  - name: Install JQ
+    ansible.builtin.apt:
+      pkg:
+        - jq
+
+  - name: Get Local IP
+    shell: |
+      set -o pipefail
+      ip --json addr show ens32 | jq -r '.[0].addr_info[] | select(.family == "inet") | .local'
+    args:
+      executable: /bin/bash
+    register: local_ip
+
+  - name: Set Kubelet default
+    copy:
+      dest: /etc/default/kubelet
+      content: |
+        KUBELET_EXTRA_ARGS=--node-ip={{ local_ip.stdout }}
+
+  - name: Setup Kube Master
+    ansible.builtin.include_tasks: kube_master.yml
+    when: KUBE_master|bool
+
+  - name: Set fact based on gathered information
+    set_fact:
+      join_command: " {{ hostvars['kube-master']['common_variable'] }}"
+
+  - name: Check kubelet Status
+    ansible.builtin.systemd:
+     name: kubelet
+    register: service_status
+
+  - name: Join Cluster
+    shell: |
+      set -o pipefail
+      {{ join_command }}
+    args:
+      executable: /bin/bash
+    when: not service_status.status.ActiveState == 'active'
+
+  - name: Join Cluster
+    shell: |
+      set -o pipefail
+      export KUBECONFIG=/etc/kubernetes/admin.conf
+      kubectl label node {{ item }} node-role.kubernetes.io/worker=worker
+    args:
+      executable: /bin/bash
+    with_items: "{{ groups['all'] }}"
+    when: KUBE_master|bool

@@ -1,0 +1,54 @@
+---
+  - name: Install Requirements
+    ansible.builtin.apt:
+      pkg:
+        - software-properties-common
+        - curl
+        - apt-transport-https
+        - ca-certificates
+      update_cache: true
+
+  - name: Check that CRI-O Repo isn't already added
+    stat:
+      path: /etc/apt/keyrings/cri-o-apt-keyring.gpg
+    register: keyring
+
+  - name: Add CRIO-O Repo
+    shell: |
+      set -o pipefail
+      curl -fsSL https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/cri-o-apt-keyring.gpg
+    args:
+      executable: /bin/bash
+    when: not keyring.stat.exists
+
+  - name: Check that CRI-O sources isn't already added
+    stat:
+      path: /etc/apt/sources.list.d/cri-o.list
+    register: sources
+
+  - name: Add CRIO-O to sources
+    shell: |
+      set -o pipefail
+      echo "deb [signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg] https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/ /" | tee /etc/apt/sources.list.d/cri-o.list
+    args:
+      executable: /bin/bash
+    when: not sources.stat.exists
+
+
+  - name: Install Requirements
+    ansible.builtin.apt:
+      pkg:
+        - cri-o
+      update_cache: true
+
+  - name: Systemctl
+    shell: |
+      systemctl daemon-reload
+      systemctl enable crio --now
+      systemctl start crio.service
+
+  - name: Install crictl
+    shell: |
+      wget https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.28.0/crictl-v1.28.0-linux-amd64.tar.gz
+      sudo tar zxvf crictl-v1.28.0-linux-amd64.tar.gz -C /usr/local/bin
+      rm -f crictl-v1.28.0-linux-amd64.tar.gz

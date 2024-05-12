@@ -38,7 +38,7 @@ resource "vsphere_virtual_machine" "master" {
   }
   disk {
     label            = "disk0"
-    size             = data.vsphere_virtual_machine.template.disks.0.size
+    size             = "50"
     thin_provisioned = data.vsphere_virtual_machine.template.disks.0.thin_provisioned
   }
   clone {
@@ -74,7 +74,7 @@ resource "vsphere_virtual_machine" "slave" {
   }
   disk {
     label            = "disk0"
-    size             = data.vsphere_virtual_machine.template.disks.0.size
+    size             = "50"
     thin_provisioned = data.vsphere_virtual_machine.template.disks.0.thin_provisioned
   }
   clone {
