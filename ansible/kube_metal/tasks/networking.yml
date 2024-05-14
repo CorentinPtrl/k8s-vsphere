@@ -1,0 +1,69 @@
+---
+- name: Check if Cillium is already installed
+  shell: |
+    kubectl get pods -n kube-system | grep cilium
+  args:
+    executable: /bin/bash
+  register: check_cilium
+  failed_when: false
+
+- name: Install Cillium
+  shell: |
+    helm repo add cilium https://helm.cilium.io/
+    helm install cilium cilium/cilium --version 1.15.4 --namespace kube-system
+  args:
+    executable: /bin/bash
+  when: check_cilium.rc == 1
+
+- name: Install Cillium CLI
+  shell: |
+    CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+    CLI_ARCH=amd64
+    curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+    sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
+    sudo tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
+    rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+  args:
+    executable: /bin/bash
+
+- name: Wait for Cillium to be ready
+  shell: |
+    cilium status --wait
+  args:
+    executable: /bin/bash
+  when: check_cilium.rc == 1
+
+- name: Check if MetalLB is already installed
+  shell: |
+    kubectl get pods -n metallb-system | grep metal
+  args:
+    executable: /bin/bash
+  register: check_metal
+  failed_when: false
+
+- name: Install MetalLB
+  shell: |
+    helm repo add metallb https://metallb.github.io/metallb
+    kubectl create namespace metallb-system
+    helm install metallb metallb/metallb --namespace metallb-system
+  args:
+    executable: /bin/bash
+  when: check_metal.rc == 1
+
+- name: Ensure Ansible Directory
+  file:
+    path: /etc/ansible
+    state: directory
+
+- name: Copy MetalLB Config
+  copy:
+    src: metal_config.yml
+    dest: /etc/ansible/metal_config.yml
+
+- name: Apply MetalLB Config
+  shell: |
+    sleep 20
+    kubectl apply -f /etc/ansible/metal_config.yml
+  args:
+    executable: /bin/bash
+  when: check_metal.rc == 1

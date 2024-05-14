@@ -1,44 +1,58 @@
 ---
-  - name: Get Local IP
-    shell: |
-      set -o pipefail
-      ip --json addr show ens32 | jq -r '.[0].addr_info[] | select(.family == "inet") | .local'
-    args:
-      executable: /bin/bash
-    register: local_ip
+- name: Get Local IP
+  shell: |
+    set -o pipefail
+    ip --json addr show ens32 | jq -r '.[0].addr_info[] | select(.family == "inet") | .local'
+  args:
+    executable: /bin/bash
+  register: local_ip
 
-  - name: Get NodeName
-    shell: |
-      set -o pipefail
-      hostname -s
-    args:
-      executable: /bin/bash
-    register: hostname
+- name: Get NodeName
+  shell: |
+    set -o pipefail
+    hostname -s
+  args:
+    executable: /bin/bash
+  register: hostname
 
-  - name: Check if kubeadm is init
-    shell: |
-      kubeadm token create --print-join-command
-    args:
-      executable: /bin/bash
-    ignore_errors: true
-    register: check_kubeadm
+- name: Check if kubeadm is init
+  shell: |
+    kubeadm token create --print-join-command
+  args:
+    executable: /bin/bash
+  ignore_errors: true
+  register: check_kubeadm
+  failed_when: false
 
-  - name: Install Kubedam
-    shell: |
-      kubeadm init --apiserver-advertise-address={{ local_ip.stdout }}  --apiserver-cert-extra-sans={{ local_ip.stdout }}  --pod-network-cidr=192.168.0.0/16 --node-name {{ hostname.stdout }} --ignore-preflight-errors Swap
-      echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> ~/.bashrc
-    args:
-      executable: /bin/bash
-    when: check_kubeadm.rc == 1
+- name: Install Kubedam
+  shell: |
+    kubeadm init --apiserver-advertise-address={{ local_ip.stdout }}  --apiserver-cert-extra-sans={{ local_ip.stdout }}  --pod-network-cidr=192.168.0.0/16 --node-name {{ hostname.stdout }} --ignore-preflight-errors Swap
+  args:
+    executable: /bin/bash
+  when: check_kubeadm.rc == 1
 
-  - name: Get Join Command
-    shell: |
-      set -o pipefail
-      kubeadm token create --print-join-command
-    args:
-      executable: /bin/bash
-    register: join_command
+- name: Copy kubeconfig
+  shell: |
+    mkdir ~/.kube
+    cp /etc/kubernetes/admin.conf ~/.kube/config
+  args:
+    executable: /bin/bash
 
-  - name: Set fact
-    set_fact:
-      common_variable: "{{ join_command.stdout }}"
+- name: Install Helm
+  shell: |
+    set -o pipefail
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    executable: /bin/bash
+
+- name: Get Join Command
+  shell: |
+    set -o pipefail
+    kubeadm token create --print-join-command
+  args:
+    executable: /bin/bash
+  register: join_command
+
+- name: Set fact
+  set_fact:
+    common_variable: "{{ join_command.stdout }}"
