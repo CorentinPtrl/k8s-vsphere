@@ -2,7 +2,7 @@
 - name: Get Local IP
   shell: |
     set -o pipefail
-    ip --json addr show ens32 | jq -r '.[0].addr_info[] | select(.family == "inet") | .local'
+    ip --json addr show eth0 | jq -r '.[0].addr_info[] | select(.family == "inet") | .local'
   args:
     executable: /bin/bash
   register: local_ip
@@ -38,12 +38,28 @@
   args:
     executable: /bin/bash
 
-- name: Install Helm
+- name: Add Helm Repo
   shell: |
     set -o pipefail
-    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
   args:
     executable: /bin/bash
+
+- name: Add Helm Repo
+  shell: |
+    set -o pipefail
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
+  args:
+    executable: /bin/bash
+
+- name: Update Helm Repo
+  ansible.builtin.apt:
+    update_cache: yes
+
+- name: Install Helm
+  ansible.builtin.apt:
+    pkg:
+      - helm
 
 - name: Get Join Command
   shell: |

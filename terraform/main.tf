@@ -1,95 +1,112 @@
-data "vsphere_datacenter" "datacenter" {
-  name = "Datacenter"
-}
+resource "proxmox_vm_qemu" "k8s_master" {
+  name        = "kubemaster"
+  clone       = "ubuntu-24.04.1-server"
+  target_node = "PVE-CHAD"
 
-data "vsphere_datastore" "datastore" {
-  name          = "datastore1"
-  datacenter_id = data.vsphere_datacenter.datacenter.id
-}
+  cpu     = "kvm64"
+  sockets = 1
+  cores   = 4
+  memory  = 8192
 
-data "vsphere_compute_cluster" "cluster" {
-  name          = "cluster-01"
-  datacenter_id = data.vsphere_datacenter.datacenter.id
-}
+  os_type = "cloud-init"
+  qemu_os = "l26"
+  agent   = 1
+  scsihw  = "virtio-scsi-pci"
+  onboot  = true
+  tags = "k8s,coco"
+  ciuser         = "debian"
+  cipassword     = "debian"
+  ipconfig0      = "ip=192.168.100.50/24,gw=192.168.100.1"
+  sshkeys        = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDkebhEnRhrN6/NvW9LiY+5cLpe9H0Hr+DE7DYMOlrNUb0TCfN43lMFAIVQ05/z9jNlNkqJf8zx5MvVlusr0YrATbjiYADzV7RGp0uKu57M4Bvvjc06LHKAPwWfJhUZmaCKeVtzclm9FjTqTRN062gKzuzVN4BG8y6S23PCfVSiRrwddmthGr0EO1XK9jZ0GBBET+GhK03GyJdnf1o38dVJWF6suZTekW4AI4Y3SFGRN0LoU1xSr7W+74/955Tc/jxbDi0riXvda3OZkTq6R9kDFgFAO5DKgkbENsKEYdGZflburoeEyyIsvAYMD/7FMvg/jGN9jX7mNPD9rQkCnGDJVzmjD0bprXriUvuSHJqjt3aJ7Ue/mbgQ6uL7HsY0nFii9iERs4m+Je09qGHk97HOiKK/Wdg1nO5P5cstNFIRb6GAIH4RhxWqKlFK42x8ObjSXSO9xuvX9b8U3nh61Fx6aMJS8aOdfGDDF9iZ7VRLIYDRlCzqirPFUYTe7PB+678= corentin@as-arch"
 
-data "vsphere_network" "network" {
-  name          = "pfSense_LAN"
-  datacenter_id = data.vsphere_datacenter.datacenter.id
-}
-
-data "vsphere_virtual_machine" "template" {
-  name          = "debian-12.2"
-  folder        = "templates/os/debian"
-  datacenter_id = data.vsphere_datacenter.datacenter.id
-}
-
-resource "vsphere_virtual_machine" "master" {
-  name             = "kube-master"
-  folder           = "kubernetes"
-  resource_pool_id = data.vsphere_compute_cluster.cluster.resource_pool_id
-  datastore_id     = data.vsphere_datastore.datastore.id
-  num_cpus         = 4
-  memory           = 4096
-  guest_id         = data.vsphere_virtual_machine.template.guest_id
-  scsi_type        = data.vsphere_virtual_machine.template.scsi_type
-  network_interface {
-    network_id   = data.vsphere_network.network.id
-    adapter_type = data.vsphere_virtual_machine.template.network_interface_types[0]
-  }
-  disk {
-    label            = "disk0"
-    size             = "50"
-    thin_provisioned = data.vsphere_virtual_machine.template.disks.0.thin_provisioned
-  }
-  clone {
-    template_uuid = data.vsphere_virtual_machine.template.id
-    customize {
-      linux_options {
-        host_name = "kube-master"
-        domain    = "example.com"
+  disks {
+    ide {
+      ide2 {
+        cloudinit {
+          storage = "local"
+        }
       }
-      network_interface {
-        ipv4_address = "192.168.5.50"
-        ipv4_netmask = 24
+    }
+    scsi {
+      scsi0 {
+        disk {
+          storage    = "local"
+          size       = "50G"
+        }
       }
-      ipv4_gateway    = "192.168.5.1"
-      dns_server_list = ["1.1.1.1"]
     }
   }
+
+  network {
+    model  = "virtio"
+    bridge = "vxCHAD"
+    mtu = 1350
+  }
+
+  lifecycle {
+    ignore_changes = [
+      clone,
+      pool,
+      ciuser,
+      disks[0].scsi[0].scsi0[0].disk[0].storage,
+    ]
+  }
 }
 
-resource "vsphere_virtual_machine" "slave" {
-  count            = 2
-  name             = "kube-slave-${count.index}"
-  folder           = "kubernetes"
-  resource_pool_id = data.vsphere_compute_cluster.cluster.resource_pool_id
-  datastore_id     = data.vsphere_datastore.datastore.id
-  num_cpus         = 4
-  memory           = 4096
-  guest_id         = data.vsphere_virtual_machine.template.guest_id
-  scsi_type        = data.vsphere_virtual_machine.template.scsi_type
-  network_interface {
-    network_id   = data.vsphere_network.network.id
-    adapter_type = data.vsphere_virtual_machine.template.network_interface_types[0]
-  }
-  disk {
-    label            = "disk0"
-    size             = "50"
-    thin_provisioned = data.vsphere_virtual_machine.template.disks.0.thin_provisioned
-  }
-  clone {
-    template_uuid = data.vsphere_virtual_machine.template.id
-    customize {
-      linux_options {
-        host_name = "kube-slave-${count.index}"
-        domain    = "example.com"
+resource "proxmox_vm_qemu" "k8s_slaves" {
+  count = 3
+
+  name        = "kubeslave${count.index}"
+  clone       = "ubuntu-24.04.1-server"
+  target_node = "PVE-CHAD"
+
+  cpu     = "kvm64"
+  sockets = 1
+  cores   = 4
+  memory  = 8192
+
+  tags = "k8s,coco"
+  os_type = "cloud-init"
+  qemu_os = "l26"
+  agent   = 1
+  scsihw  = "virtio-scsi-pci"
+  onboot  = true
+
+  ciuser         = "debian"
+  cipassword     = "debian"
+  ipconfig0      = "ip=192.168.100.${51 + count.index}/24,gw=192.168.100.1"
+  sshkeys        = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDkebhEnRhrN6/NvW9LiY+5cLpe9H0Hr+DE7DYMOlrNUb0TCfN43lMFAIVQ05/z9jNlNkqJf8zx5MvVlusr0YrATbjiYADzV7RGp0uKu57M4Bvvjc06LHKAPwWfJhUZmaCKeVtzclm9FjTqTRN062gKzuzVN4BG8y6S23PCfVSiRrwddmthGr0EO1XK9jZ0GBBET+GhK03GyJdnf1o38dVJWF6suZTekW4AI4Y3SFGRN0LoU1xSr7W+74/955Tc/jxbDi0riXvda3OZkTq6R9kDFgFAO5DKgkbENsKEYdGZflburoeEyyIsvAYMD/7FMvg/jGN9jX7mNPD9rQkCnGDJVzmjD0bprXriUvuSHJqjt3aJ7Ue/mbgQ6uL7HsY0nFii9iERs4m+Je09qGHk97HOiKK/Wdg1nO5P5cstNFIRb6GAIH4RhxWqKlFK42x8ObjSXSO9xuvX9b8U3nh61Fx6aMJS8aOdfGDDF9iZ7VRLIYDRlCzqirPFUYTe7PB+678= corentin@as-arch"
+
+  disks {
+    ide {
+      ide2 {
+        cloudinit {
+          storage = "local"
+        }
       }
-      network_interface {
-        ipv4_address = "192.168.5.${51 + count.index}"
-        ipv4_netmask = 24
-      }
-      ipv4_gateway    = "192.168.5.1"
-      dns_server_list = ["1.1.1.1"]
     }
+    scsi {
+      scsi0 {
+        disk {
+          storage    = "local"
+          size       = "50G"
+        }
+      }
+    }
+  }
+
+  network {
+    model  = "virtio"
+    bridge = "vxCHAD"
+    mtu = 1350
+  }
+
+  lifecycle {
+    ignore_changes = [
+      clone,
+      pool,
+      ciuser,
+      disks[0].scsi[0].scsi0[0].disk[0].storage,
+    ]
   }
 }
